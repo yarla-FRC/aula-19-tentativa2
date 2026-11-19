@@ -1,0 +1,133 @@
+// AULA 19 - Robô Tank no ROBÔ FÍSICO (SPARK MAX via CAN)
+// Projeto: WPILib > Create a new project > Template > Java > Timed Robot
+// Antes: Ctrl+Shift+P > "WPILib: Manage Vendor Libraries" > instale o REVLib.
+// Substitua o arquivo src/main/java/frc/robot/Robot.java por este.
+// Para enviar ao robô: conecte no Wi-Fi/USB do robô > Ctrl+Shift+P > "WPILib: Deploy Robot Code".
+
+package frc.robot;
+
+import com.revrobotics.spark.SparkBase.PersistMode;
+import com.revrobotics.spark.SparkBase.ResetMode;
+// Se o VS Code marcar erro nas 2 linhas acima (REVLib 2026), troque por:
+// import com.revrobotics.PersistMode;
+// import com.revrobotics.ResetMode;
+import com.revrobotics.spark.SparkLowLevel.MotorType;
+import com.revrobotics.spark.SparkMax;
+import com.revrobotics.spark.config.SparkBaseConfig.IdleMode;
+import com.revrobotics.spark.config.SparkMaxConfig;
+import edu.wpi.first.math.filter.SlewRateLimiter;
+import edu.wpi.first.wpilibj.RobotController;
+import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+
+public class Robot extends TimedRobot {
+  // ===== IDs CAN (confira no REV Hardware Client) =====
+  private static final int ID_ESQUERDO_LIDER = 1;
+  private static final int ID_ESQUERDO_SEGUIDOR = 2;
+  private static final int ID_DIREITO_LIDER = 3;
+  private static final int ID_DIREITO_SEGUIDOR = 4;
+
+  // CIM / motor com escova = kBrushed. Se for NEO, use kBrushless.
+  private final SparkMax esquerdoLider = new SparkMax(ID_ESQUERDO_LIDER, MotorType.kBrushed);
+  private final SparkMax esquerdoSeguidor = new SparkMax(ID_ESQUERDO_SEGUIDOR, MotorType.kBrushed);
+  private final SparkMax direitoLider = new SparkMax(ID_DIREITO_LIDER, MotorType.kBrushed);
+  private final SparkMax direitoSeguidor = new SparkMax(ID_DIREITO_SEGUIDOR, MotorType.kBrushed);
+
+  private final DifferentialDrive drive =
+      new DifferentialDrive(esquerdoLider::set, direitoLider::set);
+
+  private final XboxController controle = new XboxController(0);
+
+  // Suaviza a aceleração para o robô não "empinar" nem trancar a roda
+  private final SlewRateLimiter suavizaEsquerda = new SlewRateLimiter(3.0);
+  private final SlewRateLimiter suavizaDireita = new SlewRateLimiter(3.0);
+
+  // Velocidade normal e velocidade turbo (segurando RB)
+  private static final double VELOCIDADE_NORMAL = 0.6;
+  private static final double VELOCIDADE_TURBO = 1.0;
+
+  private final Timer timer = new Timer();
+
+  public Robot() {
+    // Configuração comum a todos os motores
+    SparkMaxConfig configGeral = new SparkMaxConfig();
+    configGeral.smartCurrentLimit(40).idleMode(IdleMode.kBrake);
+
+    // Líder esquerdo: configuração geral
+    SparkMaxConfig configEsquerdoLider = new SparkMaxConfig();
+    configEsquerdoLider.apply(configGeral);
+
+    // Líder direito: invertido para o robô andar reto
+    SparkMaxConfig configDireitoLider = new SparkMaxConfig();
+    configDireitoLider.apply(configGeral);
+    configDireitoLider.inverted(true);
+
+    // Seguidores copiam o líder do seu lado
+    SparkMaxConfig configEsquerdoSeguidor = new SparkMaxConfig();
+    configEsquerdoSeguidor.apply(configGeral);
+    configEsquerdoSeguidor.follow(esquerdoLider);
+
+    SparkMaxConfig configDireitoSeguidor = new SparkMaxConfig();
+    configDireitoSeguidor.apply(configGeral);
+    configDireitoSeguidor.follow(direitoLider);
+
+    // Grava a configuração nos SPARK MAX (fica salva mesmo se desligar)
+    esquerdoLider.configure(
+        configEsquerdoLider, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+    direitoLider.configure(
+        configDireitoLider, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+    esquerdoSeguidor.configure(
+        configEsquerdoSeguidor, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+    direitoSeguidor.configure(
+        configDireitoSeguidor, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+  }
+
+  @Override
+  public void robotPeriodic() {
+    SmartDashboard.putNumber("Bateria (V)", RobotController.getBatteryVoltage());
+    SmartDashboard.putNumber("Saida Esquerda", esquerdoLider.getAppliedOutput());
+    SmartDashboard.putNumber("Saida Direita", direitoLider.getAppliedOutput());
+    SmartDashboard.putNumber("Corrente Esquerda (A)", esquerdoLider.getOutputCurrent());
+    SmartDashboard.putNumber("Corrente Direita (A)", direitoLider.getOutputCurrent());
+  }
+
+  // ===== AUTÔNOMO: sai da zona andando para frente por 2 segundos =====
+  @Override
+  public void autonomousInit() {
+    timer.restart();
+  }
+
+  @Override
+  public void autonomousPeriodic() {
+    if (timer.get() < 2.0) {
+      drive.tankDrive(0.4, 0.4);
+    } else {
+      drive.stopMotor();
+    }
+  }
+
+  // ===== TELEOPERADO: tank drive com turbo =====
+  @Override
+  public void teleopInit() {
+    suavizaEsquerda.reset(0);
+    suavizaDireita.reset(0);
+  }
+
+  @Override
+  public void teleopPeriodic() {
+    double limite = controle.getRightBumperButton() ? VELOCIDADE_TURBO : VELOCIDADE_NORMAL;
+
+    double esquerda = -controle.getLeftY() * limite;
+    double direita = -controle.getRightY() * limite;
+
+    drive.tankDrive(suavizaEsquerda.calculate(esquerda), suavizaDireita.calculate(direita));
+  }
+
+  @Override
+  public void disabledInit() {
+    drive.stopMotor();
+  }
+}
