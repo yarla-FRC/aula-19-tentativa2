@@ -1,8 +1,3 @@
-// AULA 19 - Robô Tank no ROBÔ FÍSICO (SPARK MAX via CAN)
-// Projeto: WPILib > Create a new project > Template > Java > Timed Robot
-// Antes: Ctrl+Shift+P > "WPILib: Manage Vendor Libraries" > instale o REVLib.
-// Substitua o arquivo src/main/java/frc/robot/Robot.java por este.
-// Para enviar ao robô: conecte no Wi-Fi/USB do robô > Ctrl+Shift+P > "WPILib: Deploy Robot Code".
 
 package frc.robot;
 
